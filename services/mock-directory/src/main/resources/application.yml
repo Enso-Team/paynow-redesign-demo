@@ -1,0 +1,12 @@
+server:
+  port: 8085
+spring:
+  application:
+    name: mock-directory
+  datasource:
+    url: jdbc:mariadb://localhost:${DB_PORT:3307}/dbs
+    username: ${DB_USER:dbs}
+    password: ${DB_PASSWORD}
+  sql:
+    init:
+      mode: always

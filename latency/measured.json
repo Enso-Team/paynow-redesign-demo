@@ -1,0 +1,10 @@
+{
+  "_source": "The timings come from screen recordings of the real app. These are likely network times. Video frames show how long each screen was up, not what the app was doing.",
+  "auth.session": 300,
+  "auth.refresh": 300,
+  "account.summary": 600,
+  "account.peek": 600,
+  "lookup": 500,
+  "payment.submit": 300,
+  "fast.settle": 2000
+}

@@ -1,0 +1,85 @@
+name: DBSDigibank
+options:
+  bundleIdPrefix: sg.demo
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Base.xcconfig
+  Release: Config/Base.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+packages:
+  SGQR:
+    path: Packages/SGQR
+targets:
+  DBSDigibank:
+    type: application
+    platform: iOS
+    sources:
+      - path: DBSDigibank
+        excludes:
+          - "Resources/PaynowForm/**"
+      - path: DBSDigibank/Resources/PaynowForm
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: SGQR
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: sg.demo.digibank
+        PRODUCT_NAME: digibank
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Demo Bank
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_NSCameraUsageDescription: Scan PayNow and SGQR codes to pay.
+        INFOPLIST_KEY_NSFaceIDUsageDescription: Face ID unlocks your Demo Bank credential to log in and pay.
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Pick a photo of a QR code to pay.
+        INFOPLIST_KEY_NSContactsUsageDescription: Choose someone from your contacts to pay with PayNow.
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: Connects to the demo bank servers on your Mac.
+    info:
+      path: DBSDigibank/Info.plist
+      properties:
+        DBSBackendHost: $(DBS_BACKEND_HOST)
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            localhost:
+              NSExceptionAllowsInsecureHTTPLoads: true
+              NSIncludesSubdomains: false
+            ts.net:
+              NSExceptionAllowsInsecureHTTPLoads: true
+              NSIncludesSubdomains: true
+  DBSDigibankTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - DBSDigibankTests
+    dependencies:
+      - target: DBSDigibank
+      - package: SGQR
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: sg.demo.digibank.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/digibank.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/digibank"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  DBSDigibank:
+    build:
+      targets:
+        DBSDigibank: all
+        DBSDigibankTests: [test]
+    test:
+      targets:
+        - DBSDigibankTests
+        - package: SGQR/SGQRTests
+    run:
+      config: Debug

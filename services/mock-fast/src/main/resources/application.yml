@@ -1,0 +1,12 @@
+server:
+  port: 8086
+spring:
+  application:
+    name: mock-fast
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: mock-fast
+      auto-offset-reset: earliest
+fast:
+  delay-ms: 200

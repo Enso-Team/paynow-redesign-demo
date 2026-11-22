@@ -1,0 +1,30 @@
+# Dependencies and build output
+node_modules/
+dist/
+dist-demo/
+.vite/
+build/
+.build/
+.swiftpm/
+DerivedData/
+*.xcodeproj/
+xcuserdata/
+.gradle/
+logs/
+screenshots/
+*.tsbuildinfo
+
+# Built copies of the PayNow form. ios/scripts/sync-form.sh and the web prebuild step make them.
+ios/DBSDigibank/Resources/PaynowForm/*
+!ios/DBSDigibank/Resources/PaynowForm/.gitkeep
+web/app/apps/web/public/paynow-form/
+
+# Personal config and secrets
+ios/Config/Local.xcconfig
+.env
+.env.*
+!.env.example
+
+# OS files and image backups
+.DS_Store
+*.orig.jpg

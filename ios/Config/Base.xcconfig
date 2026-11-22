@@ -1,0 +1,14 @@
+// Shared build settings for every configuration. XcodeGen wires this file in through project.yml.
+// Personal values (signing team, the Mac the device build talks to) go in Local.xcconfig,
+// which is gitignored. Copy Local.xcconfig.example to start one.
+
+CODE_SIGN_STYLE = Automatic
+DEVELOPMENT_TEAM =
+
+// The host the app calls for the demo services. The simulator shares the Mac's localhost.
+// A device needs the Mac's name on your network, set as DBS_BACKEND_HOST_DEVICE in Local.xcconfig.
+DBS_BACKEND_HOST_DEVICE = localhost
+DBS_BACKEND_HOST = localhost
+DBS_BACKEND_HOST[sdk=iphoneos*] = $(DBS_BACKEND_HOST_DEVICE)
+
+#include? "Local.xcconfig"

@@ -1,0 +1,24 @@
+plugins {
+    id 'org.springframework.boot' version '3.2.12' apply false
+}
+
+subprojects {
+    apply plugin: 'java'
+    group = 'sg.dbs.demo'
+    version = '0.1.0'
+    java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }
+    repositories { mavenCentral() }
+    dependencies {
+        implementation platform('org.springframework.boot:spring-boot-dependencies:3.2.12')
+    }
+    tasks.withType(JavaCompile).configureEach { options.compilerArgs << '-parameters' }
+}
+
+configure(subprojects.findAll { it.name != 'common' }) {
+    apply plugin: 'org.springframework.boot'
+    dependencies {
+        implementation project(':common')
+    }
+    tasks.named('jar') { enabled = false }
+    bootJar { archiveFileName = "${project.name}.jar" }
+}

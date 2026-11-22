@@ -1,0 +1,22 @@
+{
+  "name": "dbs-redesign-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm --filter sgqr build && pnpm --filter paynow-form build && pnpm --filter web build",
+    "test": "pnpm -r --if-present test",
+    "dev": "pnpm --filter paynow-form build && pnpm --filter web dev",
+    "samples": "pnpm --filter sgqr samples",
+    "e2e": "node scripts/e2e.mjs",
+    "build:demo": "pnpm --filter sgqr build && pnpm --filter paynow-form build && pnpm --filter web build:demo",
+    "e2e:demo": "node scripts/e2e.mjs --demo"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "@types/node": "^24.0.0",
+    "vite": "^7.0.0",
+    "vitest": "^3.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "playwright-core": "^1.56.0"
+  }
+}

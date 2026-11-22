@@ -1,0 +1,17 @@
+{
+  "name": "sgqr",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "vitest run",
+    "samples": "node scripts/samples.mjs"
+  },
+  "devDependencies": {
+    "qrcode": "^1.5.4"
+  }
+}

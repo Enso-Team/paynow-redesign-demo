@@ -1,0 +1,24 @@
+CREATE TABLE IF NOT EXISTS users (
+  id VARCHAR(64) PRIMARY KEY,
+  username VARCHAR(64) NOT NULL UNIQUE,
+  display_name VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS devices (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  public_key VARCHAR(512) NOT NULL,
+  name VARCHAR(128) NOT NULL,
+  scope VARCHAR(8) NOT NULL DEFAULT 'full',
+  created_at DATETIME(3) NOT NULL,
+  revoked_at DATETIME(3) NULL
+);
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  token_hash CHAR(64) PRIMARY KEY,
+  device_id VARCHAR(64) NOT NULL,
+  expires_at DATETIME(3) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS nonces (
+  nonce VARCHAR(64) PRIMARY KEY,
+  device_id VARCHAR(64) NOT NULL,
+  expires_at DATETIME(3) NOT NULL
+);

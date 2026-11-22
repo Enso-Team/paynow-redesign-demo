@@ -1,0 +1,28 @@
+{
+  "name": "web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "predev": "node scripts/copy-assets.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/copy-assets.mjs",
+    "build": "tsc -p . && vite build",
+    "preview": "vite preview --port 5173 --strictPort",
+    "test": "vitest run",
+    "prebuild:demo": "node scripts/copy-assets.mjs",
+    "build:demo": "tsc -p . && vite build --mode demo",
+    "preview:demo": "vite preview --mode demo"
+  },
+  "dependencies": {
+    "jsqr": "^1.4.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "sgqr": "workspace:*",
+    "paynow-form": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0"
+  }
+}
