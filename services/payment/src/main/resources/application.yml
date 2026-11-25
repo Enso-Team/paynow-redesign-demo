@@ -22,3 +22,4 @@ account:
   url: http://localhost:8082
 payment:
   max-wait-ms: 30000
+  step-up-over: "1000.00"

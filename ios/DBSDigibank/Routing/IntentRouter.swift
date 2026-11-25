@@ -58,7 +58,22 @@ enum Landing: Equatable, Sendable {
 @MainActor
 protocol RouterEnvironment: AnyObject {
     func faceID(_ journey: String) async -> AuthContext?
-    func startSession(_ auth: AuthContext) async throws
+    var flow: FlowMode { get }
+    func runStarted()
+    func attest() async throws -> String
+    func startSession(_ auth: AuthContext, attestation: String, challenged: (@MainActor @Sendable () -> Void)?) async throws
+    /// Closes the scanner and returns once it is gone.
+    func leaveScanner() async
+    func showStage(_ stage: LoadingStage)
+    /// Mounts the signed-in half of the app under the splash.
+    func bootShell() async
+    /// Fetches the account summary, and throws when it fails.
+    func loadHome() async throws
+    func prefetchHome()
+    /// Fades the loading screen out and returns once Home is on screen.
+    func revealHome() async
+    /// Drops the journey and any run under way.
+    func abandon()
     func sessionIsLive() async -> Bool
     func touchSession() async
     func land(_ landing: Landing)
@@ -71,6 +86,8 @@ protocol RouterEnvironment: AnyObject {
 @Observable
 final class IntentRouter {
     private(set) var pending: Intent?
+    /// DBS Sequential opened the scanner with no session, so the decoded QR runs the whole chain.
+    private var scanFirst = false
     @ObservationIgnored weak var environment: RouterEnvironment?
 
     init(environment: RouterEnvironment? = nil) {
@@ -82,6 +99,16 @@ final class IntentRouter {
         pending = intent
         defer { pending = nil }
 
+        if case .payQR = intent {} else { scanFirst = false }
+        if intent == .scanAndPay, origin == .entry {
+            environment.runStarted()
+            if environment.flow == .sequential {
+                scanFirst = true
+                environment.land(.journey(.scanner))
+                return
+            }
+        }
+
         var form: PaynowInit?
         if case .payQR(let raw) = intent {
             do {
@@ -92,22 +119,58 @@ final class IntentRouter {
             }
         }
 
+        if scanFirst, let form {
+            scanFirst = false
+            await runSequential(intent, form: form, environment)
+            return
+        }
+
         if intent.needsSession {
             let live = await environment.sessionIsLive()
             if origin == .entry || !live {
-                guard let auth = await environment.faceID(intent.journeyName) else { return }
-                do {
-                    try await environment.startSession(auth)
-                } catch {
-                    environment.report(error.localizedDescription)
+                // Attestation runs while Face ID is on screen.
+                let attestation = Task { try await environment.attest() }
+                guard let auth = await environment.faceID(intent.journeyName) else {
+                    attestation.cancel()
+                    environment.abandon()
                     return
                 }
+                do {
+                    try await environment.startSession(auth, attestation: attestation.value, challenged: nil)
+                } catch {
+                    environment.report(error.localizedDescription)
+                    environment.abandon()
+                    return
+                }
+                if intent == .scanAndPay { environment.prefetchHome() }
             } else {
                 await environment.touchSession()
             }
         }
 
         environment.land(Self.landing(for: intent, from: origin, form: form))
+    }
+
+    /// One call at a time, through Home, to the form. Which call each screen waits for is predicted from
+    /// recordings of the real app, which show screens and not calls.
+    private func runSequential(_ intent: Intent, form: PaynowInit, _ environment: RouterEnvironment) async {
+        await environment.leaveScanner()
+        do {
+            environment.showStage(.entrySpinner)
+            let attestation = try await environment.attest()
+            environment.showStage(.splash)
+            await environment.bootShell()
+            guard let auth = await environment.faceID(intent.journeyName) else { return environment.abandon() }
+            environment.showStage(.splashSpinner)
+            try await environment.startSession(auth, attestation: attestation) { environment.showStage(.login) }
+            environment.showStage(.homeSkeleton)
+            try await environment.loadHome()
+        } catch {
+            environment.report(error.localizedDescription)
+            return environment.abandon()
+        }
+        await environment.revealHome()
+        environment.land(.journey(.form(form)))
     }
 
     static func landing(for intent: Intent, from origin: Origin, form: PaynowInit? = nil) -> Landing {

@@ -48,6 +48,7 @@ function errorCode(body: unknown): string | undefined {
 const PAY_ERRORS: Record<string, string> = {
   INSUFFICIENT_FUNDS: "Not enough in this account",
   LIMIT_EXCEEDED: "Over your PayNow daily limit",
+  STEP_UP_REQUIRED: "Confirm with Face ID to pay",
   PROXY_NOT_FOUND: "No PayNow account for this number",
 };
 

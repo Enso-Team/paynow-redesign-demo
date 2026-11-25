@@ -212,6 +212,7 @@ struct SentView: View {
         }
         .background(.white)
         .navigationBarBackButtonHidden()
+        .background(AppearProbe { app.sentAppeared(result) })
         .onAppear { withAnimation(.spring(duration: 0.4, bounce: 0.35)) { appeared = true } }
     }
 

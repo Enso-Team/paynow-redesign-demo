@@ -11,9 +11,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import sg.dbs.demo.common.ApiException;
+import sg.dbs.demo.common.LocalOnly;
 
 import java.math.BigDecimal;
-import java.net.InetAddress;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -41,7 +41,7 @@ public class HoldsController {
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     Map<String, Object> place(@RequestBody HoldRequest req, HttpServletRequest http) throws Exception {
-        localOnly(http);
+        LocalOnly.check(http);
         if (req.paymentId() == null || req.accountId() == null || req.amount() == null || req.amount().signum() <= 0) {
             throw ApiException.badRequest("paymentId, accountId and a positive amount are required");
         }
@@ -76,7 +76,7 @@ public class HoldsController {
     @PostMapping("/internal/holds/{paymentId}/capture")
     @Transactional
     Map<String, Object> capture(@PathVariable String paymentId, HttpServletRequest http) throws Exception {
-        localOnly(http);
+        LocalOnly.check(http);
         Map<String, Object> hold = lock(paymentId);
         if ("HELD".equals(hold.get("status"))) {
             db.update("UPDATE accounts SET balance = balance - ? WHERE id = ?", hold.get("amount"), hold.get("account_id"));
@@ -91,7 +91,7 @@ public class HoldsController {
     @PostMapping("/internal/holds/{paymentId}/release")
     @Transactional
     Map<String, Object> release(@PathVariable String paymentId, HttpServletRequest http) throws Exception {
-        localOnly(http);
+        LocalOnly.check(http);
         Map<String, Object> hold = lock(paymentId);
         if ("HELD".equals(hold.get("status"))) {
             db.update("UPDATE paynow_usage u JOIN accounts a ON a.user_id = u.user_id "
@@ -108,11 +108,5 @@ public class HoldsController {
                 "SELECT account_id, amount, status FROM holds WHERE payment_id = ? FOR UPDATE", paymentId);
         if (rows.isEmpty()) throw new ApiException(HttpStatus.NOT_FOUND, "HOLD_NOT_FOUND", "No hold for this payment");
         return rows.get(0);
-    }
-
-    private static void localOnly(HttpServletRequest http) throws Exception {
-        if (!InetAddress.getByName(http.getRemoteAddr()).isLoopbackAddress()) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Internal endpoint");
-        }
     }
 }

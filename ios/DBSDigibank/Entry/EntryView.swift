@@ -83,6 +83,9 @@ struct EntryView: View {
             .accessibilityIdentifier("entry.alert")
             .position(x: 585 * s, y: 489 * s)
 
+            ABControlBar()
+                .position(x: 585 * s, y: 700 * s)
+
             peekBalance
                 .position(x: 585 * s, y: 1078 * s)
 

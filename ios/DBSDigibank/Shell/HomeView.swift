@@ -30,6 +30,7 @@ struct HomeView: View {
             }
             .ignoresSafeArea()
         }
+        .background(AppearProbe { app.homeAppeared() })
         .refreshable { await home.refresh() }
     }
 

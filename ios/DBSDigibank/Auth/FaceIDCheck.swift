@@ -23,6 +23,8 @@ final class FaceIDCheck {
 
     /// Asks once and names the journey. Returns nil when the user cancels.
     func check(_ journey: String) async -> AuthContext? {
+        let span = TraceRecorder.shared.start(TraceRecorder.faceID, .biometric)
+        defer { TraceRecorder.shared.end(span) }
         if biometricsEnrolled {
             let context = LAContext()
             context.localizedCancelTitle = "Cancel"
@@ -33,6 +35,7 @@ final class FaceIDCheck {
                 return nil
             }
         }
+        TraceRecorder.shared.markBiometricMocked()
         return await runMock() ? AuthContext(nil) : nil
     }
 

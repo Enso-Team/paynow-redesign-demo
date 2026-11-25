@@ -16,3 +16,5 @@ auth:
   refresh-ttl: PT30M
   nonce-ttl: PT60S
   peek-ttl: PT60S
+  attest-ttl: PT2M
+  step-up-ttl: PT2M

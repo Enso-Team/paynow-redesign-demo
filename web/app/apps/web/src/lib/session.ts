@@ -1,3 +1,4 @@
+import { DEMO } from "./demo";
 import { askFaceId } from "./faceid";
 import { deviceId, ensureDevice, HttpError, postJson, signNonce } from "./device";
 
@@ -188,9 +189,12 @@ export const session = new SessionManager();
 export async function deviceSession(scope?: "peek", retry = true): Promise<unknown> {
   const id = await ensureDevice();
   try {
+    const attested = scope || DEMO ? null : ((await postJson("/api/auth/auth/attest", {
+      deviceId: id, platform: "web", osVersion: navigator.platform, appVersion: "demo", signals: [],
+    })) as { attestationId: string });
     const { nonce } = (await postJson("/api/auth/auth/challenge", { deviceId: id })) as { nonce: string };
     const signature = await signNonce(nonce);
-    return await postJson("/api/auth/auth/session", { deviceId: id, nonce, signature, ...(scope ? { scope } : {}) });
+    return await postJson("/api/auth/auth/session", { deviceId: id, nonce, signature, ...(scope ? { scope } : {}), ...(attested ?? {}) });
   } catch (e) {
     if (retry && e instanceof HttpError && (e.code === "DEVICE_UNKNOWN" || e.status === 404)) {
       await ensureDevice(true);

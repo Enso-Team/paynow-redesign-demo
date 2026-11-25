@@ -84,7 +84,13 @@ protocol HTTPTransport: Sendable {
 struct URLSessionTransport: HTTPTransport {
     var session: URLSession = .shared
 
-    func perform(_ request: URLRequest) async throws -> APIResponse {
+    /// Every call carries the latency multiplier. During a run each call is timed too.
+    func perform(_ original: URLRequest) async throws -> APIResponse {
+        var request = original
+        request.setValue("\(ABSettings.multiplier)", forHTTPHeaderField: "X-Latency-Multiplier")
+        let path = request.url?.path ?? ""
+        let token = Self.untraced.contains(path) ? nil
+            : TraceRecorder.shared.start("\(request.httpMethod ?? "GET") \(Self.spanPath(path))", .backend)
         do {
             let (data, response) = try await session.data(for: request)
             let http = response as? HTTPURLResponse
@@ -92,10 +98,19 @@ struct URLSessionTransport: HTTPTransport {
             for (key, value) in http?.allHeaderFields ?? [:] {
                 headers["\(key)"] = "\(value)"
             }
-            return APIResponse(status: http?.statusCode ?? 0, data: data, headers: headers)
+            let result = APIResponse(status: http?.statusCode ?? 0, data: data, headers: headers)
+            TraceRecorder.shared.end(token, response: result)
+            return result
         } catch {
+            TraceRecorder.shared.end(token)
             throw APIError.transport(error.localizedDescription)
         }
+    }
+
+    private static let untraced: Set<String> = ["/auth/traces", "/accounts/peek"]
+
+    private static func spanPath(_ path: String) -> String {
+        path.hasPrefix("/payments/") && path != "/payments/paynow" ? "/payments/{id}" : path
     }
 }
 

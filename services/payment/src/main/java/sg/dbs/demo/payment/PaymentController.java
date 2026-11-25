@@ -19,6 +19,8 @@ import sg.dbs.demo.common.ApiException;
 import sg.dbs.demo.common.DirectoryClient;
 import sg.dbs.demo.common.DirectoryClient.Proxy;
 import sg.dbs.demo.common.Jwt;
+import sg.dbs.demo.common.MeasuredLatency;
+import sg.dbs.demo.common.StepUp;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
@@ -45,10 +47,12 @@ public class PaymentController {
     private final AccountClient accounts;
     private final KafkaTemplate<String, String> kafka;
     private final ObjectMapper json;
+    private final RiskCheck risk;
+    private final MeasuredLatency latency;
     private final long maxWaitMs;
 
     public PaymentController(JdbcTemplate db, Jwt jwt, DirectoryClient directory, AccountClient accounts,
-                             KafkaTemplate<String, String> kafka, ObjectMapper json,
+                             KafkaTemplate<String, String> kafka, ObjectMapper json, RiskCheck risk, MeasuredLatency latency,
                              @Value("${payment.max-wait-ms}") long maxWaitMs) {
         this.db = db;
         this.jwt = jwt;
@@ -56,14 +60,19 @@ public class PaymentController {
         this.accounts = accounts;
         this.kafka = kafka;
         this.json = json;
+        this.risk = risk;
+        this.latency = latency;
         this.maxWaitMs = maxWaitMs;
     }
 
     @PostMapping("/payments/paynow")
     ResponseEntity<Map<String, String>> pay(@RequestHeader(value = "Authorization", required = false) String authorization,
                                             @RequestHeader(value = "Idempotency-Key", required = false) String key,
+                                            @RequestHeader(value = "X-Step-Up-Token", required = false) String stepUpToken,
+                                            @RequestHeader(value = MeasuredLatency.HEADER, required = false) String multiplier,
                                             @RequestBody PayNowRequest req) throws Exception {
-        String userId = jwt.userId(authorization);
+        Jwt.Claims session = jwt.claims(authorization);
+        String userId = session.userId();
         if (key == null || key.isBlank() || key.length() > 64) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "MISSING_IDEMPOTENCY_KEY", "Send an Idempotency-Key header");
         }
@@ -81,6 +90,8 @@ public class PaymentController {
             throw new ApiException(HttpStatus.BAD_REQUEST, "UNSUPPORTED_CURRENCY", "Only SGD is supported");
         }
         BigDecimal amount = req.amount().setScale(2);
+
+        risk.require(session, new StepUp(req.fromAccountId(), type, value, amount, key), stepUpToken);
 
         Proxy proxy;
         try {
@@ -112,6 +123,7 @@ public class PaymentController {
         event.put("amount", amount.toPlainString());
         event.put("currency", "SGD");
         event.put("reference", req.reference());
+        event.put("latencyMultiplier", latency.multiplier(multiplier));
         event.put("requestedAt", now.toString());
         kafka.send(PaymentApplication.REQUESTED, paymentId, json.writeValueAsString(event)).get(10, TimeUnit.SECONDS);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of("paymentId", paymentId, "status", "PENDING"));

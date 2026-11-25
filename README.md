@@ -73,6 +73,18 @@ Build and run the `DBSDigibank` scheme on a simulator. The simulator calls the s
 
 On a device, set `DEVELOPMENT_TEAM` and `DBS_BACKEND_HOST_DEVICE` in `Config/Local.xcconfig`. The host is the Mac running the services, as the phone reaches it. The app's ATS settings allow plain HTTP to `localhost` and to `*.ts.net`, so a Tailscale MagicDNS name works as is. Any other host needs its own ATS exception in `project.yml`.
 
+## Record the A/B waterfall
+
+The bar on the entry screen switches the flow (DBS Sequential or Intent Router) and the backend latency (1x or 3x). Run Scan & Pay once in each flow to the Sent screen, then plot both on the canvas:
+
+```sh
+ART_DIR=<Assets.xcassets> ios/scripts/install-phone.sh <udid>   # ART_DIR is optional
+scripts/verify_flows.py      # both chains from the Mac, with stand-ins for Face ID and the scan
+scripts/plot_waterfall.py    # the latest 3x and 1x phone runs (--multiplier picks one)
+```
+
+A payee's first payment needs a step-up Face ID, so pay it once before recording.
+
 ## Placeholder art
 
 Every image is a plain placeholder: line glyphs, gradients, a grey photo stand-in and a padlock. Swap in your own art under the same file names and similar pixel sizes. The web copies live in `web/app/apps/web/public/img/` and the iOS copies in `ios/DBSDigibank/Resources/Assets.xcassets/<name>.imageset/`.

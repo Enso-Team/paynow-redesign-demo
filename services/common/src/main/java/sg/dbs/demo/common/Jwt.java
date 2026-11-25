@@ -1,6 +1,7 @@
 package sg.dbs.demo.common;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -25,13 +26,15 @@ public class Jwt {
     private static final String HEADER = B64.encodeToString("{\"alg\":\"HS256\",\"typ\":\"JWT\"}".getBytes(StandardCharsets.UTF_8));
 
     private final byte[] secret;
+    private final ObjectProvider<DeviceStatus> devices;
     private final ObjectMapper json = new ObjectMapper();
 
     /** The shared HS256 secret comes from the JWT_SECRET environment variable (see services/.env.example). */
-    public Jwt(@Value("${JWT_SECRET:}") String secret) {
+    public Jwt(@Value("${JWT_SECRET:}") String secret, ObjectProvider<DeviceStatus> devices) {
         if (secret.isBlank()) {
             throw new IllegalStateException("JWT_SECRET is not set. Copy services/.env.example to services/.env and run scripts/up.sh.");
         }
+        this.devices = devices;
         this.secret = secret.getBytes(StandardCharsets.UTF_8);
     }
 
@@ -66,11 +69,21 @@ public class Jwt {
             Map<?, ?> claims = json.readValue(B64D.decode(parts[1]), Map.class);
             Instant exp = Instant.ofEpochSecond(((Number) claims.get("exp")).longValue());
             if (exp.isBefore(Instant.now())) throw ApiException.unauthorized("TOKEN_EXPIRED", "Session expired");
-            return new Claims((String) claims.get("sub"), (String) claims.get("deviceId"), exp, (String) claims.get("scope"));
+            Claims verified = new Claims((String) claims.get("sub"), (String) claims.get("deviceId"), exp, (String) claims.get("scope"));
+            requireActive(verified.deviceId());
+            return verified;
         } catch (ApiException e) {
             throw e;
         } catch (Exception e) {
             throw invalid();
+        }
+    }
+
+    /** The kill switch. A service with no device table refuses every token, and a database error refuses too. */
+    private void requireActive(String deviceId) {
+        DeviceStatus status = devices.getIfAvailable();
+        if (status == null || deviceId == null || !status.active(deviceId)) {
+            throw ApiException.unauthorized("DEVICE_REVOKED", "This device's access was revoked");
         }
     }
 
@@ -81,6 +94,15 @@ public class Jwt {
 
     /** Like {@link #userId(String)}, and also accepts a token carrying {@code allowedScope}. */
     public String userId(String authorization, String allowedScope) {
+        return claims(authorization, allowedScope).userId();
+    }
+
+    /** The whole full-session token, for callers that need the device too. */
+    public Claims claims(String authorization) {
+        return claims(authorization, null);
+    }
+
+    private Claims claims(String authorization, String allowedScope) {
         if (authorization == null || !authorization.startsWith("Bearer ")) {
             throw ApiException.unauthorized("UNAUTHORIZED", "Missing Bearer token");
         }
@@ -88,7 +110,7 @@ public class Jwt {
         if (claims.scope() != null && !claims.scope().equals(allowedScope)) {
             throw ApiException.forbidden("SCOPE_NOT_ALLOWED", "This token can't reach this endpoint");
         }
-        return claims.userId();
+        return claims;
     }
 
     private byte[] hmac(String input) throws Exception {

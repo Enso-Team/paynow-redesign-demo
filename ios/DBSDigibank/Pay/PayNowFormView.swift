@@ -13,6 +13,9 @@ struct PayNowFormView: View {
         PaynowWebView(initial: initial, bridge: PaynowBridge(app: app))
             .ignoresSafeArea(edges: .bottom)
             .background(.white)
+            .overlay {
+                if app.stage == .paySkeleton { LoadingStageView(stage: .paySkeleton) }
+            }
             .navigationBarBackButtonHidden()
     }
 }
@@ -27,13 +30,34 @@ struct PaynowBridge {
         guard let service = Service(rawValue: service), service != .auth else {
             throw APIError.badPath("\(service)\(path)")
         }
-        let request = APIRequest(service: service, path: path, method: method ?? "GET",
+        app.formMounted()
+        var request = APIRequest(service: service, path: path, method: method ?? "GET",
                                  body: body.map { Data($0.utf8) }, headers: headers)
-        let response = try await app.session.send(request)
+        if service == .account, request.method == "GET", path == "/accounts/summary", let summary = await app.home.freshSummary(),
+           let json = try? JSONSerialization.jsonObject(with: summary) {
+            return (200, json)
+        }
+        var response = try await app.session.send(request)
+        if response.status == 403, response.errorCode == "STEP_UP_REQUIRED", let token = try await stepUpToken(for: request) {
+            request.headers["X-Step-Up-Token"] = token
+            response = try await app.session.send(request)
+        }
         let json: Any? = try? JSONSerialization.jsonObject(with: response.data, options: .fragmentsAllowed)
         let parsed: Any = json ?? (response.data.isEmpty ? NSNull() : String(decoding: response.data, as: UTF8.self))
         return (response.status, parsed)
     }
+
+    /// The fraud check's second Face ID, bound to this payment. Nil when cancelled.
+    private func stepUpToken(for request: APIRequest) async throws -> String? {
+        guard let body = request.body, let key = request.headers["Idempotency-Key"],
+              let fields = try? JSONDecoder().decode(PayBody.self, from: body),
+              let auth = await app.faceID.check("Confirm payment") else { return nil }
+        return try await app.session.stepUp(
+            StepUpPayment(fromAccountId: fields.fromAccountId, proxyType: fields.proxyType, proxyValue: fields.proxyValue,
+                          amount: fields.amount, idempotencyKey: key), auth: auth)
+    }
+
+    private struct PayBody: Decodable { var fromAccountId, proxyType, proxyValue, amount: String }
 
     func done(_ result: PaymentResult) { app.paymentFinished(result) }
 

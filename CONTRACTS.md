@@ -24,7 +24,7 @@ Scope: Log in, Scan & Pay, and PayNow transfer by mobile number or UEN work end 
   - Log in, before Home.
   - Scan & Pay, before the scanner.
   - PayNow, before the PayNow menu.
-- **Pay never asks again**, because the journey's session covers it.
+- **Pay asks again only for a step-up**: a new payee, or an amount over S$1,000. Otherwise the journey's session covers it.
 - **Peek Balance, Digital Token, switching tabs and product pages never ask.**
 - **Scan & Pay:** Face ID → session → scanner → decode → lookup → form → Pay → poll → sent.
 - **PayNow transfer:**
@@ -100,6 +100,10 @@ Every error body is `{"code": "...", "message": "..."}`.
 
 A token with a `scope` claim reaches only the endpoints that allow that scope. Every other endpoint answers 403 `SCOPE_NOT_ALLOWED`. Today `peek` is the only scope, and only `GET /accounts/peek` allows it.
 
+## Latency multiplier
+
+`X-Latency-Multiplier: 1` or `3` makes each endpoint in `latency/measured.json` wait its time, multiplied. FAST settlement scales too. Any other value is 400. Every response carries `Server-Timing: delay;dur=..., app;dur=...`.
+
 ## Auth service (8081)
 
 - `POST /auth/devices` registers a device:
@@ -112,7 +116,7 @@ A token with a `scope` claim reaches only the endpoints that allow that scope. E
   - response: `{nonce, expiresAt}`
   - the nonce is valid for 60 s
 - `POST /auth/session`:
-  - request: `{deviceId, nonce, signature, scope?}`, where `signature` is base64 DER ECDSA SHA-256 over the nonce's UTF-8 bytes
+  - request: `{deviceId, nonce, signature, scope?, attestationId}` (a Peek pass needs no attestation), where `signature` is base64 DER ECDSA SHA-256 over the nonce's UTF-8 bytes
   - response: `{accessToken, refreshToken, expiresAt}`
   - errors: 400 `BAD_SCOPE`, 401 `DEVICE_UNKNOWN`, 401 `BAD_SIGNATURE`, 401 `NONCE_EXPIRED`, 403 `SCOPE_NOT_ALLOWED`
   - a device registered with `scope: "peek"` gets only Peek passes. Asking it for a full session is 403 `SCOPE_NOT_ALLOWED`.
@@ -123,6 +127,10 @@ A token with a `scope` claim reaches only the endpoints that allow that scope. E
     - the token lasts 60 s (`auth.peek-ttl`) and carries `scope: "peek"`
     - the client gets a new pass when the old one is about to expire
   - any other `scope` value is 400 `BAD_SCOPE`
+- `POST /auth/attest` takes `{deviceId, platform, osVersion, appVersion, signals}` and returns `{attestationId, verdict, expiresAt}`. Any jailbreak signal is 403 `DEVICE_COMPROMISED`. The attestation is single use and lasts 2 min. A full session without one is 403 `ATTESTATION_REQUIRED`. The report is self-declared by the app.
+- `POST /auth/step-up` takes the Bearer token and `{deviceId, nonce, signature, payment}`. The signature covers `nonce.binding`, where `binding` is the SHA-256 hex of `fromAccountId|proxyType|proxyValue|amount|idempotencyKey`. It returns `{stepUpToken, expiresAt}`.
+- `POST /auth/devices/revoke` takes the Bearer token and an optional `deviceId`. It sets `devices.revoked_at`, and every service answers that device's tokens with 401 `DEVICE_REVOKED` from the next request.
+- `POST /auth/traces` takes the Bearer token and a run (`run_id`, `flow`, `multiplier`, `spans`). `GET /auth/traces/latest?flow=&multiplier=` answers on localhost only.
 - `POST /auth/refresh`:
   - request: `{refreshToken}`
   - response: same shape as `/auth/session`
@@ -237,6 +245,7 @@ It gets a stable made-up masked name, such as "KOH ** **JE" or "LUCKY **** PTE L
   - Errors:
     - 422 `INSUFFICIENT_FUNDS` or 422 `LIMIT_EXCEEDED`, passed through from the hold
     - 422 `PROXY_NOT_FOUND`
+    - 403 `STEP_UP_REQUIRED` for a payee with no settled payment or an amount over S$1,000. Send the same call again with `X-Step-Up-Token`. A token for another payment is 403 `STEP_UP_INVALID`.
 - Flow:
   1. Resolve the proxy through the lookup service's directory client to get `bankCode`.
   2. Place a hold.

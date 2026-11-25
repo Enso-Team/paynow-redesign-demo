@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import LocalAuthentication
 
@@ -83,20 +84,56 @@ actor SessionManager {
 
     // MARK: Session setup
 
-    /// Swaps the Face ID-unlocked device key for a session: challenge, sign the nonce, session.
-    func start(_ auth: AuthContext?) async throws {
+    /// Reports this phone's jailbreak signals and returns the attestation a session needs. Needs no Face ID.
+    func attest() async throws -> String {
         guard let deviceId = deviceId() else { throw SessionError.deviceUnknown }
-        let api = PublicAPI(transport: transport)
+        let report = AttestReport(deviceId: deviceId, platform: "iOS",
+                                  osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
+                                  appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "",
+                                  signals: JailbreakCheck.signals)
+        let response = try await PublicAPI(transport: transport).post(.auth, "/auth/attest", report)
+        if response.errorCode == "DEVICE_UNKNOWN" { try await deviceIsUnknown() }
+        if response.errorCode == "DEVICE_COMPROMISED" {
+            throw SessionError.failed("This iPhone looks jailbroken, so banking is off")
+        }
+        guard response.status == 200 else { throw SessionError.failed("Attestation failed (\(response.status))") }
+        return try response.decode(Attestation.self).attestationId
+    }
 
-        let challenge = try await api.post(.auth, "/auth/challenge", ["deviceId": deviceId])
+    private func challenge(_ deviceId: String) async throws -> String {
+        let challenge = try await PublicAPI(transport: transport).post(.auth, "/auth/challenge", ["deviceId": deviceId])
         if challenge.errorCode == "DEVICE_UNKNOWN" { try await deviceIsUnknown() }
         guard challenge.status == 200 || challenge.status == 201,
               let nonce = try? challenge.decode(Challenge.self).nonce
         else { throw SessionError.failed("Challenge failed (\(challenge.status))") }
+        return nonce
+    }
 
+    /// Signs this exact payment with the Face ID-unlocked key and returns its step-up token.
+    func stepUp(_ payment: StepUpPayment, auth: AuthContext?) async throws -> String {
+        guard let deviceId = deviceId() else { throw SessionError.deviceUnknown }
+        let nonce = try await challenge(deviceId)
+        let signature = try sign(Data("\(nonce).\(payment.binding)".utf8), auth).base64EncodedString()
+        let body = try JSONEncoder().encode(StepUpBody(deviceId: deviceId, nonce: nonce, signature: signature, payment: payment))
+        let response = try await send(APIRequest(service: .auth, path: "/auth/step-up", method: "POST", body: body))
+        guard response.status == 200 else { throw SessionError.failed("Step-up failed (\(response.errorCode ?? "\(response.status)"))") }
+        return try response.decode(StepUpResponse.self).stepUpToken
+    }
+
+    /// Swaps the Face ID-unlocked device key for a session: challenge, sign the nonce, session.
+    /// `challenged` runs once the nonce is in, before the session call.
+    func start(_ auth: AuthContext?, attestation: String? = nil,
+               challenged: (@MainActor @Sendable () -> Void)? = nil) async throws {
+        guard let deviceId = deviceId() else { throw SessionError.deviceUnknown }
+        let api = PublicAPI(transport: transport)
+        let attestationId: String
+        if let attestation { attestationId = attestation } else { attestationId = try await attest() }
+        let nonce = try await challenge(deviceId)
+        await challenged?()
         let signature = try sign(Data(nonce.utf8), auth).base64EncodedString()
         let session = try await api.post(.auth, "/auth/session",
-                                         ["deviceId": deviceId, "nonce": nonce, "signature": signature])
+                                         ["deviceId": deviceId, "nonce": nonce, "signature": signature,
+                                          "attestationId": attestationId])
         if session.errorCode == "DEVICE_UNKNOWN" { try await deviceIsUnknown() }
         guard session.status == 200 || session.status == 201 else {
             throw SessionError.failed("Session failed (\(session.errorCode ?? "\(session.status)"))")
@@ -183,6 +220,31 @@ actor SessionManager {
             throw SessionError.signedOut
         }
         return retry
+    }
+}
+
+private struct AttestReport: Encodable {
+    var deviceId, platform, osVersion, appVersion: String
+    var signals: [String]
+}
+
+private struct Attestation: Decodable { var attestationId: String }
+
+private struct StepUpBody: Encodable {
+    var deviceId, nonce, signature: String
+    var payment: StepUpPayment
+}
+
+private struct StepUpResponse: Decodable { var stepUpToken: String }
+
+/// The payment a step-up approves. `binding` matches the server's StepUp.binding().
+struct StepUpPayment: Encodable, Sendable {
+    var fromAccountId, proxyType, proxyValue, amount, idempotencyKey: String
+
+    var binding: String {
+        let text = [fromAccountId, proxyType.uppercased(), proxyValue.trimmingCharacters(in: .whitespaces).uppercased(),
+                    amount, idempotencyKey].joined(separator: "|")
+        return SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 }
 

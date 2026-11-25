@@ -7,6 +7,7 @@ final class HomeModel {
     private(set) var summary: AccountsSummary?
     private(set) var lastUpdated: Date?
     private(set) var refreshFailed = false
+    @ObservationIgnored private var raw: Data?
     @ObservationIgnored private var etag: String?
     @ObservationIgnored private let session: SessionManager
     @ObservationIgnored private var inFlight: Task<Void, Never>?
@@ -32,6 +33,7 @@ final class HomeModel {
             case 304:
                 break
             case 200:
+                raw = response.data
                 summary = try response.decode(AccountsSummary.self)
                 etag = response.header("ETag")
             default:
@@ -44,7 +46,15 @@ final class HomeModel {
         }
     }
 
+    /// The summary for the PayNow form: the fetch under way, or one from the last minute.
+    func freshSummary() async -> Data? {
+        if let inFlight { await inFlight.value }
+        guard !refreshFailed, let lastUpdated, Date.now.timeIntervalSince(lastUpdated) < 60 else { return nil }
+        return raw
+    }
+
     func clear() {
+        raw = nil
         summary = nil
         etag = nil
         lastUpdated = nil

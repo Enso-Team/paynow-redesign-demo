@@ -73,6 +73,7 @@ struct ScannerView: View {
             Task { await decodePhoto(item) }
         }
         .onAppear { handled = false }
+        .background(AppearProbe { app.scannerAppeared() })
     }
 
     private var header: some View {
@@ -199,6 +200,7 @@ struct ScannerView: View {
             _ = try SGQR.parse(raw)
             handled = true
             error = nil
+            TraceRecorder.shared.end(AppModel.scanSpan)
             app.send(.payQR(raw), from: .journey)
         } catch {
             show(error.localizedDescription)

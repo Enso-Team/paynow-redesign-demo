@@ -21,6 +21,7 @@ final class AppModel: RouterEnvironment {
     var journey: Journey?
     var selectedTab: AppTab = .home
     var toast: String?
+    private(set) var stage: LoadingStage?
 
     let session = SessionManager()
     let faceID = FaceIDCheck()
@@ -59,7 +60,126 @@ final class AppModel: RouterEnvironment {
 
     func faceID(_ journey: String) async -> AuthContext? { await faceID.check(journey) }
 
-    func startSession(_ auth: AuthContext) async throws { try await session.start(auth) }
+    var flow: FlowMode { ABSettings.flow }
+
+    func runStarted() {
+        home.clear()
+        TraceRecorder.shared.begin(flow: flow, multiplier: ABSettings.multiplier)
+    }
+
+    func attest() async throws -> String { try await session.attest() }
+
+    func startSession(_ auth: AuthContext, attestation: String, challenged: (@MainActor @Sendable () -> Void)?) async throws {
+        try await session.start(auth, attestation: attestation, challenged: challenged)
+    }
+
+    func loadHome() async throws {
+        await home.refresh()
+        if home.refreshFailed { throw APIError.transport("Couldn't load your accounts") }
+    }
+
+    func prefetchHome() { Task { await home.refresh() } }
+
+    func leaveScanner() async {
+        let span = TraceRecorder.shared.start("Scanner closes", .ui)
+        await withCheckedContinuation { continuation in
+            dismissWaiter = continuation
+            journey = nil
+        }
+        TraceRecorder.shared.end(span)
+    }
+
+    func journeyDismissed() {
+        let waiter = dismissWaiter
+        dismissWaiter = nil
+        waiter?.resume()
+    }
+
+    func showStage(_ stage: LoadingStage) { setStage(stage) }
+
+    private func setStage(_ next: LoadingStage?) {
+        TraceRecorder.shared.end(stageToken)
+        stageToken = next.flatMap { TraceRecorder.shared.startScreen($0.rawValue) }
+        stage = next
+    }
+
+    func bootShell() async {
+        let span = TraceRecorder.shared.start("Signed-in app mounts", .ui)
+        await withCheckedContinuation { continuation in
+            homeWaiter = continuation
+            selectedTab = .home
+            phase = .signedIn
+        }
+        TraceRecorder.shared.end(span)
+    }
+
+    func homeAppeared() {
+        let waiter = homeWaiter
+        homeWaiter = nil
+        waiter?.resume()
+    }
+
+    func revealHome() async {
+        let span = TraceRecorder.shared.start("Home appears", .ui)
+        await withCheckedContinuation { continuation in
+            withAnimation(.easeInOut(duration: 0.25)) { setStage(nil) } completion: { continuation.resume() }
+        }
+        TraceRecorder.shared.end(span)
+        selectedTab = .pay
+    }
+
+    /// The form's first call means its page is up.
+    func formMounted() {
+        TraceRecorder.shared.end(Self.formSpan)
+        if stage == .paySkeleton { setStage(nil) }
+    }
+
+    func abandon() {
+        if stage != nil {
+            setStage(nil)
+            phase = .signedOut
+        }
+        guard TraceRecorder.shared.isRunning else { return }
+        TraceRecorder.shared.cancel()
+        journey = nil
+    }
+
+    // MARK: Run spans that cross views
+
+    static let scannerSpan = "Scanner opens"
+    static let scanSpan = "Aim and scan"
+    static let formSpan = "PayNow form opens"
+    static let sentSpan = "Sent screen opens"
+
+    @ObservationIgnored private var dismissWaiter: CheckedContinuation<Void, Never>?
+    @ObservationIgnored private var stageToken: TraceRecorder.Token?
+    @ObservationIgnored private var homeWaiter: CheckedContinuation<Void, Never>?
+
+    func scannerAppeared() {
+        TraceRecorder.shared.end(Self.scannerSpan)
+        if journey?.path.isEmpty == true { _ = TraceRecorder.shared.start(Self.scanSpan, .user) }
+    }
+
+    func sentAppeared(_ result: PaymentResult) {
+        TraceRecorder.shared.end(Self.sentSpan)
+        guard let trace = TraceRecorder.shared.finish(), result.settled,
+              let body = try? JSONEncoder().encode(trace) else { return }
+        Task {
+            let request = APIRequest(service: .auth, path: "/auth/traces", method: "POST", body: body)
+            let response = try? await session.send(request, interactive: false)
+            if response?.status != 201 { report("Couldn't save this run's trace") }
+        }
+    }
+
+    private func traceLanding(_ destination: Destination) {
+        switch destination {
+        case .scanner: _ = TraceRecorder.shared.start(Self.scannerSpan, .ui)
+        case .form:
+            _ = TraceRecorder.shared.start(Self.formSpan, .ui)
+            if phase == .signedIn, flow == .sequential, TraceRecorder.shared.isRunning { setStage(.paySkeleton) }
+        default: break
+        }
+    }
 
     func sessionIsLive() async -> Bool { await session.isLive }
 
@@ -75,8 +195,10 @@ final class AppModel: RouterEnvironment {
         case .applyTab:
             selectedTab = .apply
         case .journey(let destination):
+            traceLanding(destination)
             journey = Journey(root: destination)
         case .push(let destination):
+            traceLanding(destination)
             if journey == nil { journey = Journey(root: destination) } else { journey?.path.append(destination) }
         }
     }
@@ -92,17 +214,22 @@ final class AppModel: RouterEnvironment {
     // MARK: Journeys
 
     func paymentFinished(_ result: PaymentResult) {
+        _ = TraceRecorder.shared.start(Self.sentSpan, .ui)
         journey?.path.append(.sent(result))
         Task { await home.refresh() }
     }
 
     /// The form's close(): back one screen, or out of the journey.
     func closeForm() {
+        setStage(nil)
+        TraceRecorder.shared.cancel()
         guard let current = journey else { return }
         if current.path.isEmpty { journey = nil } else { journey?.path.removeLast() }
     }
 
     func endJourney() {
+        setStage(nil)
+        TraceRecorder.shared.cancel()
         journey = nil
         if phase == .signedIn { Task { await home.refresh() } }
     }
@@ -160,6 +287,8 @@ final class AppModel: RouterEnvironment {
     }
 
     private func sessionEnded() {
+        setStage(nil)
+        TraceRecorder.shared.cancel()
         journey = nil
         if phase == .signedIn { phase = .signedOut }
         home.clear()
@@ -167,6 +296,8 @@ final class AppModel: RouterEnvironment {
     }
 
     private func deviceForgotten() {
+        setStage(nil)
+        TraceRecorder.shared.cancel()
         DeviceBinding.clear()
         peek.reset()
         journey = nil

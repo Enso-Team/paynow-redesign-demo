@@ -18,6 +18,8 @@ final class FakeTransport: HTTPTransport, @unchecked Sendable {
         return lock.withLock {
             _log.append(path)
             switch path {
+            case "/auth/attest":
+                return Self.json(200, ["attestationId": "att-\(_log.count)"])
             case "/auth/challenge":
                 return Self.json(200, ["nonce": "n-\(_log.count)", "expiresAt": "2099-01-01T00:00:00Z"])
             case "/auth/session", "/auth/refresh":
@@ -75,7 +77,7 @@ struct SessionManagerTests {
     @Test func startSwapsTheSignedNonceForASession() async throws {
         let session = await makeSession()
         try await session.start(AuthContext(nil))
-        #expect(transport.log == ["/auth/challenge", "/auth/session"])
+        #expect(transport.log == ["/auth/attest", "/auth/challenge", "/auth/session"])
         #expect(await session.isLive)
     }
 

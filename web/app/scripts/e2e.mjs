@@ -43,6 +43,7 @@ async function installStub(ctx) {
     const path = url.pathname.replace(/^\/api\/[a-z]+/, "");
     const body = req.postData() ? JSON.parse(req.postData()) : null;
     if (path === "/auth/devices") return json(route, 201, { deviceId: "dev-1", userId: "u-1" });
+    if (path === "/auth/attest") return json(route, 200, { attestationId: "att-1" });
     if (path === "/auth/challenge") return json(route, 200, { nonce: "n" + Math.random(), expiresAt: Date.now() + 60000 });
     if (path === "/auth/session" || path === "/auth/refresh") return json(route, 200, mint());
     const auth = (req.headers()["authorization"] ?? "").replace("Bearer ", "");

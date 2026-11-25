@@ -35,7 +35,10 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: app.phase)
-        .fullScreenCover(item: $app.journey) { _ in
+        .overlay {
+            if let stage = app.stage, stage != .paySkeleton { LoadingStageView(stage: stage).transition(.opacity) }
+        }
+        .fullScreenCover(item: $app.journey, onDismiss: { app.journeyDismissed() }) { _ in
             JourneyView()
                 .environment(app)
                 .preferredColorScheme(.light)
